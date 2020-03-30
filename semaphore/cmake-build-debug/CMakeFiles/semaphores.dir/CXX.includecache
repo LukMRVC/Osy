@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/lukas/Documents/osy/semaphore/sem_posix_test.cpp
+stdio.h
+-
+stdlib.h
+-
+unistd.h
+-
+errno.h
+-
+string.h
+-
+signal.h
+-
+stdarg.h
+-
+fcntl.h
+-
+sys/stat.h
+-
+sys/types.h
+-
+semaphore.h
+-
+

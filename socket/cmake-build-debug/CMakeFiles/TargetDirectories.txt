@@ -1,0 +1,5 @@
+/home/lukas/Documents/osy/socket/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/lukas/Documents/osy/socket/cmake-build-debug/CMakeFiles/readline.dir
+/home/lukas/Documents/osy/socket/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/lukas/Documents/osy/socket/cmake-build-debug/CMakeFiles/socket_client.dir
+/home/lukas/Documents/osy/socket/cmake-build-debug/CMakeFiles/socket_server.dir

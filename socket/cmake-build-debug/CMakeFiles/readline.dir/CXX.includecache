@@ -1,0 +1,20 @@
+#IncludeRegexLine: ^[ 	]*[#%][ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/lukas/Documents/osy/socket/readline.cpp
+stdio.h
+-
+unistd.h
+-
+fcntl.h
+-
+cstdlib
+-
+cstring
+-
+

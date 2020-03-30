@@ -1,0 +1,4 @@
+/home/lukas/Documents/osy/semaphore/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/lukas/Documents/osy/semaphore/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/lukas/Documents/osy/semaphore/cmake-build-debug/CMakeFiles/main.dir
+/home/lukas/Documents/osy/semaphore/cmake-build-debug/CMakeFiles/semaphores.dir

@@ -1,0 +1,1 @@
+/usr/bin/c++  -g   CMakeFiles/readline.dir/readline.cpp.o  -o readline 
