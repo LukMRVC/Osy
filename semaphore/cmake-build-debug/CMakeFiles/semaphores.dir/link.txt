@@ -1,1 +1,0 @@
-/usr/bin/c++  -g   CMakeFiles/semaphores.dir/sem_posix_test.cpp.o  -o semaphores -lrt -lpthread 

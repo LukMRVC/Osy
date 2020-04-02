@@ -1,3 +1,0 @@
-/home/lukas/Documents/osy/testexec/cmake-build-debug/CMakeFiles/rebuild_cache.dir
-/home/lukas/Documents/osy/testexec/cmake-build-debug/CMakeFiles/testexec.dir
-/home/lukas/Documents/osy/testexec/cmake-build-debug/CMakeFiles/edit_cache.dir
