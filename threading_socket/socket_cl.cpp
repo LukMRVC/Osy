@@ -190,7 +190,7 @@ int main( int argn, char **arg )
         int count = rand() % 16 + 5;
         dprintf(sock_client, "%d ", sum);
         for (int i = 0; i < count; ++i) {
-            int num = rand() % 100;
+            int num = rand() % 1000;
             dprintf(sock_client, "%d ", num);
             sum += num;
         }
