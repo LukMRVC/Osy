@@ -10,7 +10,7 @@
 #include <netdb.h>
 #include <unistd.h>
 #include <sys/socket.h>
-#include "lib/Utils.cpp"
+#include "lib/Utils.h"
 
 int main(int argc, char** argv) {
     ProgramArgs args = ProgramArgs::parse(argc, argv, ProgramArgs::server);
@@ -34,10 +34,39 @@ int main(int argc, char** argv) {
 
     ret = listen(server_socket, 1);
     testvalue(ret, -1, logger, "Unable to listen with server socket");
-    //accept incoming connections
-    while ( accept(server_socket, NULL, 0) != -1 ) {
+
+    int client_fd = -1;
+
+    //begin work
+    while ( 1 ) {
+        fd_set read_set;
+        FD_ZERO(&read_set);
+        FD_SET ( STDIN_FILENO, &read_set);
+        FD_SET( server_socket, &read_set );
+
+        int sel = select(server_socket + 1, &read_set, NULL, NULL, NULL);
+        if (sel < 0) {
+            logger.log(log_error, "Select failed!");
+            exit(1);
+        }
+
+        //data on server socket
+        if (FD_ISSET(server_socket, &read_set)) {
+            //accept incoming connections
+            sockaddr_in incoming_sock;
+            int incoming_sock_size = sizeof( incoming_sock );
+
+            client_fd = accept(server_socket, (sockaddr *) &incoming_sock, (socklen_t *) &incoming_sock_size);
+
+
+
+
+            testvalue(client_fd, -1, logger, "Unable to accept connection");
+        }
 
     }
+
+
 
     return 0;
 }

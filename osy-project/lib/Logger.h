@@ -10,14 +10,16 @@
 #include <cstring>
 
 constexpr unsigned int log_info = 0;
-constexpr unsigned int log_debug = 1;
-constexpr unsigned int log_error = 2;
-constexpr unsigned int log_plain = 3;
+constexpr unsigned int log_error = 1;
+constexpr unsigned int log_plain = 2;
+constexpr unsigned int log_debug = 3;
 
 struct Logger {
     int descriptor;
-    Logger(int file_no) {
+    int log_level;
+    Logger(int file_no, int log_level) {
         descriptor = file_no;
+        this->log_level = log_level;
     }
 
     constexpr static const char * format[] = {
@@ -28,7 +30,7 @@ struct Logger {
     };
 
     void log(unsigned int level, const char * message, ...) {
-        if (level && level > log_plain) return;
+        if (level && level > this->log_level) return;
         char buf[ 1024 ];
         va_list arg;
         va_start( arg, message );
