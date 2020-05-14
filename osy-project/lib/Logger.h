@@ -23,10 +23,10 @@ struct Logger {
     }
 
     constexpr static const char * format[] = {
-            "INF: %s\n",
-            "DEB: %s\n",
-            "ERR: (%d-%s) %s\n",
-            "%s\n",
+            "INFO: %s\n",
+            "ERROR: (%d-%s) %s\n",
+            "APP: %s\n",
+            "DEBUG: %s\n"
     };
 
     void log(unsigned int level, const char * message, ...) {

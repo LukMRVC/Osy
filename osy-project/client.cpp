@@ -6,17 +6,18 @@
 #include <sys/socket.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
-#include <netinet/in.h>
 #include <netdb.h>
 #include "lib/BufferedFileDescriptorReader.h"
 #include "lib/Utils.h"
+#include <time.h>
+#include "lib/Philosopher.h"
 
 int main(int argc, char ** argv) {
     ProgramArgs args = ProgramArgs::parse(argc, argv, ProgramArgs::client);
     printf("Hello, client_address world! Port: %d\n", args.port);
     Logger logger(STDOUT_FILENO, args.log_level);
     logger.log(log_debug, "Connecting to '%s':%d", args.host, args.port);
-
+    srand(time(nullptr));
     addrinfo addrinfo_hint, *ai_res;
     bzero(&addrinfo_hint, sizeof(addrinfo_hint));
     addrinfo_hint.ai_family = AF_INET;
@@ -54,12 +55,34 @@ int main(int argc, char ** argv) {
 
     BufferedFileDescriptorReader reader(socket_client);
     BufferedFileDescriptorReader stdinReader(STDIN_FILENO);
-
+    Philosopher philosopher;
     while ( 1 ) {
         fd_set descriptor_set;
         FD_ZERO(&descriptor_set);
         FD_SET(STDIN_FILENO, &descriptor_set);
         FD_SET(socket_client, &descriptor_set);
+        philosopher.make_decision();
+
+        if (philosopher.wants_to_leave()) {
+            Message leaving(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
+            logger.log(log_plain, "Philosopher is leaving!");
+            leaving.send(socket_client);
+        } else {
+            if (!philosopher.is_sitting) {
+                Message sit(Command::TYPE, Command::INCOMING, Command::S_INCOMING);
+                sit.send(socket_client);
+            } else if (!philosopher.is_eating) {
+                int _time = rand() % 7 + 2;
+                logger.log(log_plain, "Philosopher will think for %d seconds", _time);
+                philosopher.think(_time );
+                logger.log(log_info, "Philosopher wants to eat!");
+                Message eat(Command::TYPE, Command::HUNGRY, Command::S_HUNGRY);
+                eat.send(socket_client);
+            } else if (philosopher.is_eating) {
+                Message full(Command::TYPE, Command::FULL, Command::S_FULL);
+                full.send(socket_client);
+            }
+        }
 
         int sel = select(socket_client + 1, &descriptor_set, NULL, NULL, NULL);
         if (sel < 0) {
@@ -70,7 +93,11 @@ int main(int argc, char ** argv) {
         if (FD_ISSET(STDIN_FILENO, &descriptor_set)) {
             char line[256];
             int read = stdinReader.readline(line, 255);
-            write(socket_client, line, read);
+            if (!strcasecmp(line, "quit\n")) {
+                logger.log(log_info, "Quit request entered, ending communication");
+                Message leaving(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
+                leaving.send(socket_client);
+            }
         }
 
         if (FD_ISSET(socket_client, &descriptor_set)) {
@@ -84,17 +111,32 @@ int main(int argc, char ** argv) {
             Message received;
             if (Message::parse_message(line, received)) {
                 switch (received.code) {
+                    case Answer::SIT:
+                        philosopher.is_sitting = true;
+                        break;
+                    case Answer::EAT: {
+                        philosopher.is_eating = true;
+                        int _time = rand() % 7 + 2;
+                        logger.log(log_plain, "Philosopher will eat for %d seconds", _time);
+                        philosopher.eat(_time);
+                    }
+                        break;
+                    case Answer::FORK:
+                        philosopher.is_eating = false;
+                        break;
                     case Answer::BYE:
+                        logger.log(log_debug, "Closing socket connection");
                         close(socket_client);
+                        logger.log(log_debug, "Exiting program");
                         exit(0);
                         break;
-
                 }
             }
 
         }
 
     }
+
 
 
 

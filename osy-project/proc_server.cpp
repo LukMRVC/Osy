@@ -13,13 +13,97 @@
 #include <time.h>
 #include "lib/Utils.h"
 #include "lib/BufferedFileDescriptorReader.h"
+#include <sys/mman.h>
+#include <sys/types.h>
+#include <fcntl.h>
+#include <signal.h>
+#include <sys/wait.h>
+#include <semaphore.h>
+
+#define SHM_NAME "/shm_chairs"
+
+#define SEM_LOCK "/sem_lock"
+#define SEM_FORKS "/sem_forks"
+
+struct shm_chairs {
+    int chair;
+    int num_of_processes;
+};
+
+shm_chairs *shared_chairs = NULL;
+
+void clean( void ) {
+    Logger::print(log_info, "Final cleaning of shared memory");
+
+    if (!shared_chairs) return;
+
+    int num_proc = -1;
+
+    if (shared_chairs != NULL) {
+        num_proc = --shared_chairs->num_of_processes;
+    }
+    Logger::print(log_info, "Releasing shared memory");
+    int ret = munmap(shared_chairs, sizeof(* shared_chairs));
+    if (ret)
+        Logger::print(log_error, "Unable to release shared memory!");
+    else
+        Logger::print(log_info, "Shared memory released.");
+    if (num_proc == 0) {
+        Logger::print(log_info, "This process is last %d.", getpid());
+        shm_unlink(SHM_NAME);
+    }
+
+}
+
+void catch_sig(int sig) {
+    exit(1);
+}
 
 int main(int argc, char ** argv) {
     ProgramArgs args = ProgramArgs::parse(argc, argv, ProgramArgs::server);
     Logger logger(STDOUT_FILENO, args.log_level);
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    const int freeSpace = 10;
-    int taken = 0;
+    constexpr int freeSpace = 4;
+    int first = 0;
+
+    sem_t * sem_lock = sem_open(SEM_LOCK, O_RDWR | O_CREAT, 0600, 1);
+    sem_t * sem_forks = sem_open(SEM_FORKS, O_RDWR | O_CREAT, 0600, freeSpace / 2);
+    if (sem_forks == SEM_FAILED || sem_lock == SEM_FAILED) {
+        logger.log(log_error, "Unable to open semaphore");
+        exit(1);
+    }
+    testvalue(sem_init(sem_forks, 1, freeSpace / 2), -1, logger, "Unable to initialize FORKS semaphore");
+    testvalue(sem_init(sem_lock, 1, 1), -1, logger, "Unable to initialize LOCK semaphore");
+
+
+    //Open shared memory
+    int fd = shm_open(SHM_NAME, O_RDWR, 0660);
+    if (fd < 0) {
+        logger.log(log_error, "Unable to open shared memory");
+        //Create shared memory
+        fd = shm_open(SHM_NAME, O_RDWR | O_CREAT, 0660);
+        if (fd < 0) {
+            logger.log(log_error, "Unable to create shared memory file");
+            exit(1);
+        }
+        ftruncate(fd, sizeof(shared_chairs));
+        logger.log(log_info, "Shared memory file created, this process if first");
+        first = 1;
+    }
+
+    //Allocate shared memory
+    shared_chairs = ( shm_chairs * ) mmap(NULL, sizeof(shm_chairs), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (!shared_chairs) {
+        logger.log(log_error, "Unable to attach shared memory");
+        exit(1);
+    }
+    else
+        logger.log(log_info, "Shared memory attached.");
+
+    if (first) {
+        shared_chairs->chair = 0;
+        shared_chairs->num_of_processes = 1;
+    }
 
     testvalue(server_socket, -1, logger, "Unable to get server socket");
 
@@ -42,9 +126,22 @@ int main(int argc, char ** argv) {
 
     BufferedFileDescriptorReader stdinReader(STDIN_FILENO, 512);
 
+    struct sigaction sa;
+    bzero( &sa, sizeof( sa ) );
+    sa.sa_handler = catch_sig;
+    sigemptyset( &sa.sa_mask );
+    sa.sa_flags = 0;
+
+    // catch sig <CTRL-C>
+    sigaction( SIGINT, &sa, NULL );
+    // catch SIG_PIPE
+    sigaction( SIGPIPE, &sa, NULL );
+
+    // clean at exit
+    atexit( clean );
 
     int client_fd;
-    //begin work  => connection section
+    //begin work  => Connection section
     while ( 1 ) {
         fd_set read_set;
         FD_ZERO(&read_set);
@@ -71,6 +168,7 @@ int main(int argc, char ** argv) {
 
             if ( !fork() ) { //child process code
                 uint lsa = sizeof(sock_address);
+                shared_chairs->num_of_processes++;
                 getsockname(client_fd, (sockaddr *) &sock_address, &lsa);
                 logger.log(log_info, "Server IP: '%s' port: %d", inet_ntoa(sock_address.sin_addr), ntohs(sock_address.sin_port));
                 getpeername(client_fd, (sockaddr *) &sock_address, &lsa);
@@ -78,7 +176,7 @@ int main(int argc, char ** argv) {
                 close(server_socket);
                 break; //break the loop and go to communication section
             } else {
-                logger.log(log_info, "Parent PID: %d", getpid());
+                logger.log(log_debug, "Parent PID: %d", getpid());
                 close(client_fd);
             }
         }
@@ -91,89 +189,105 @@ int main(int argc, char ** argv) {
             }
             logger.log(log_debug, "Read %d bytes from stdin", read_bytes);
             logger.log(log_debug, "STDIN: %s", line);
-            if ( !strcasecmp(line, "quit")) {
+            if ( !strcasecmp(line, "quit\n")) {
                 logger.log(log_info, "Quit request entered, quitting...");
                 close(server_socket);
+                wait(NULL);
                 exit(0);
             }
         }
     }
 
-    //Communication section
+    //begin work => Communication section
     if (client_fd != -1) {
         logger.log(log_info, "Child PID: %d", getpid());
         srand(time(nullptr));
         BufferedFileDescriptorReader reader(client_fd, 1024);
         logger.log(log_info, "Client connected on FD %d\n", client_fd);
         fd_set read_set;
+        bool is_seated = false;
+        bool client_left = false;
         while ( 1 ) {
+            char messageStr[256];
+            char line[256];
+            if (client_left) break;
+            struct timeval timeout { rand() % 4 + 5, 0 };
             FD_ZERO(&read_set);
-            FD_SET( STDIN_FILENO, &read_set);
+//            FD_SET( STDIN_FILENO, &read_set);
             FD_SET( client_fd, &read_set );
-            logger.log(log_info, "Waiting for client!\n");
-            int sel = select(client_fd + 1, &read_set, NULL, NULL, NULL);
+            logger.log(log_debug, "Waiting for client!\n");
+            int sel = select(client_fd + 1, &read_set, NULL, NULL, &timeout);
             if (sel < 0) {
                 logger.log(log_error, "Select failed!");
                 exit(1);
             }
-            //Data on stdin?
-            if (FD_ISSET(STDIN_FILENO, &read_set)) {
-                char line[255];
-                logger.log(log_debug, "Data on STDIN");
-                int read_bytes = stdinReader.readline(line, 254);
-                if (read_bytes < 0) {
-                    logger.log(log_debug, "Unable to read data from stdin");
-                }
-                logger.log(log_debug, "Read %d bytes from stdin", read_bytes);
-                logger.log(log_debug, "STDIN: %s", line);
-                if ( !strcasecmp(line, "quit")) {
-                    logger.log(log_info, "Quit request entered, quitting...");
-                    close(server_socket);
-                    exit(0);
-                }
+            if (sel == 0) {
+                logger.log(log_debug, "Client communication timeout");
+                char mes[253];
+                int mes_num;
+                Info::random(rand() % Info::count + 1, mes_num, mes);
+                Message info(Info::TYPE, mes_num, mes);
+                info.to_string(messageStr);
+                logger.log(log_plain, "Sending: %s", messageStr);
+                info.send(client_fd);
             }
 
             //Data from client
             if (FD_ISSET(client_fd, &read_set)) {
                 logger.log(log_debug, "Data from client");
-                char line[256];
-                char messageStr[256];
                 int read_bytes = reader.readline(line, 255);
                 if (read_bytes < 0) {
                     logger.log(log_debug, "Unable to read data from client");
                 }
                 logger.log(log_info, "Server received: %s", line);
                 Message payload;
-                if (Message::parse_message(line, payload)) {
+                if (Message::parse_message(line, payload) && (payload.code == Command::INCOMING || is_seated)) {
                     switch (payload.code) {
                         case Command::INCOMING:
-                            if (taken >= freeSpace) {
+                            if (shared_chairs->chair >= freeSpace) {
                                 Message bye(Answer::TYPE, Answer::NO_SPACE, Answer::S_NO_SPACE);
+                                bye.to_string(messageStr);
+                                logger.log(log_plain, "Sending %s", messageStr);
                                 bye.send(client_fd);
                             } else {
                                 logger.log(log_debug, "Welcoming client");
                                 Message welcome(Answer::TYPE, Answer::SIT, Answer::S_SIT);
-                                testvalue(welcome.send(client_fd, taken++), -1, logger, "Unable to write");
+                                welcome.to_string(messageStr);
+                                is_seated = true;
+                                testvalue(sem_wait(sem_lock), -1, logger, "Unable to enter critical section");
+                                logger.log(log_plain, "Sending %s", messageStr);
+                                testvalue(welcome.send(client_fd, shared_chairs->chair++), -1, logger, "Unable to write");
+                                testvalue(sem_post(sem_lock), -1, logger, "Unable to leave critical section");
                             }
                             break;
                         case Command::HUNGRY: {
                             usleep(rand() % 100000 + 5000);
+                            testvalue(sem_wait(sem_forks), -1, logger, "Unable decrease FORKS semaphore");
                             Message eat(Answer::TYPE, Answer::EAT, Answer::S_EAT);
+                            eat.to_string(messageStr);
+                            logger.log(log_plain, "Sending %s", messageStr);
                             eat.send(client_fd);
                         }
                             break;
 
                         case Command::LEAVING: {
                             Message bye(Answer::TYPE, Answer::BYE, Answer::S_BYE);
+                            bye.to_string(messageStr);
+                            logger.log(log_plain, "Sending %s", messageStr);
                             bye.send(client_fd);
-                            --taken;
+                            testvalue(sem_wait(sem_lock), -1, logger, "Unable to enter critical section when leaving");
+                            --shared_chairs->chair;
+                            testvalue(sem_post(sem_lock), -1, logger, "Unable to leave critical section when leaving");
                             close(client_fd);
-                            exit(0);
+                            client_left = true;
                         }
                             break;
 
                         case Command::FULL:
+                            testvalue(sem_post(sem_forks), -1, logger, "Unable to increase FORKS semaphore");
                             Message fork(Answer::TYPE, Answer::FORK, Answer::S_FORK);
+                            fork.to_string(messageStr);
+                            logger.log(log_plain, "Sending %s", messageStr);
                             fork.send(client_fd);
                             break;
                     }

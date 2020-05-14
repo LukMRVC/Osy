@@ -11,7 +11,7 @@
 struct ProgramArgs {
     static constexpr int client = 2;
     static constexpr int server = 1;
-    unsigned int log_level = log_info;
+    unsigned int log_level = log_plain;
     unsigned int port = 0;
     char *host = nullptr;
 
