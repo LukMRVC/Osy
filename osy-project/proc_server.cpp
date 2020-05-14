@@ -200,10 +200,10 @@ int main(int argc, char ** argv) {
 
     //begin work => Communication section
     if (client_fd != -1) {
-        logger.log(log_info, "Child PID: %d", getpid());
+        logger.log(log_debug, "Child PID: %d", getpid());
         srand(time(nullptr));
         BufferedFileDescriptorReader reader(client_fd, 1024);
-        logger.log(log_info, "Client connected on FD %d\n", client_fd);
+        logger.log(log_debug, "Client connected on FD %d\n", client_fd);
         fd_set read_set;
         bool is_seated = false;
         bool client_left = false;

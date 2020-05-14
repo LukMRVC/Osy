@@ -36,7 +36,7 @@ int main(int argc, char ** argv) {
 
     //actual socket connection
     if ( connect(socket_client, (sockaddr *) &client_address, sizeof(client_address) ) < 0 ) {
-        logger.log(log_error, "Unable to connection client socket to server");
+        logger.log(log_error, "Unable to make connection between client socket to server");
         exit(1);
     }
 
