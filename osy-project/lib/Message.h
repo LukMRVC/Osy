@@ -66,16 +66,10 @@ struct  Message {
             sprintf(string, "%c%d:%s", type, code, text);
     }
 
-    int send(int fd, ...)
+    int send(int fd)
     {
-        char str[256];
-        to_string(str);
-        va_list arg;
-        va_start( arg, fd );
-        vsprintf( str, str, arg );
-        va_end( arg );
-        Logger::print(log_debug, "Writing %s to FD: %d", str, fd);
-        return write(fd, str, strlen(str));
+        Logger::print(log_debug, "Writing %s to FD: %d", text, fd);
+        return dprintf(fd, "%c%d:%s\n", type, code, text);
     }
 
 };

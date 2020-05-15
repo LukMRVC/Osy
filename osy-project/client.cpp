@@ -55,90 +55,72 @@ int main(int argc, char ** argv) {
 
     BufferedFileDescriptorReader reader(socket_client);
     BufferedFileDescriptorReader stdinReader(STDIN_FILENO);
-    Philosopher philosopher;
-    while ( 1 ) {
-        fd_set descriptor_set;
-        FD_ZERO(&descriptor_set);
-        FD_SET(STDIN_FILENO, &descriptor_set);
-        FD_SET(socket_client, &descriptor_set);
-        philosopher.make_decision();
 
-        if (philosopher.wants_to_leave()) {
-            Message leaving(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
-            logger.log(log_plain, "Philosopher is leaving!");
-            leaving.send(socket_client);
-        } else {
-            if (!philosopher.is_sitting) {
-                Message sit(Command::TYPE, Command::INCOMING, Command::S_INCOMING);
-                sit.send(socket_client);
-            } else if (!philosopher.is_eating) {
-                int _time = rand() % 7 + 2;
-                logger.log(log_plain, "Philosopher will think for %d seconds", _time);
-                philosopher.think(_time );
-                logger.log(log_info, "Philosopher wants to eat!");
-                Message eat(Command::TYPE, Command::HUNGRY, Command::S_HUNGRY);
-                eat.send(socket_client);
-            } else if (philosopher.is_eating) {
-                Message full(Command::TYPE, Command::FULL, Command::S_FULL);
-                full.send(socket_client);
+    Philosopher philosopher;
+    //Philosopher
+    char line[256];
+    Message received;
+    //Philosopher tries to sit
+    Message coming(Command::TYPE, Command::INCOMING, Command::S_INCOMING);
+    coming.send(socket_client);
+    if (reader.readline(line, 255)  < 0) {
+        logger.log(log_error, "Unable to read data from socket");
+        exit(1);
+    }
+    int rand_time;
+    int rand_rounds = rand() % 6 + 1;
+
+
+    if (Message::parse_message(line, received) && received.code == Answer::SIT) {
+        //sitting
+        for (int i = 0; i < rand_rounds; ++i ) {
+            rand_time = rand() % 7 + 1;
+            logger.log(log_plain, "Philosopher will think for %d seconds", rand_time);
+            philosopher.think(rand_time);
+            logger.log(log_plain, "Philosopher is hungry");
+            Message hungry(Command::TYPE, Command::HUNGRY, Command::S_HUNGRY);
+            hungry.send(socket_client);
+            logger.log(log_debug, "Waiting for server answer");
+            if (reader.readline(line, 255)  < 0) {
+                logger.log(log_error, "Unable to read data from socket");
+                exit(1);
+            }
+            if (!(Message::parse_message(line, received) && received.code == Answer::EAT)) {
+                logger.log(log_error, "Philosopher cannot eat or received invalid message");
+                exit(1);
+            }
+            //eat
+            rand_time = rand() % 7 + 1;
+            logger.log(log_plain, "Philosopher will eat for %d seconds", rand_time);
+            philosopher.eat(rand_time);
+            //philosopher is full
+            Message full(Command::TYPE, Command::FULL, Command::S_FULL);
+            full.send(socket_client);
+            if (reader.readline(line, 255)  < 0) {
+                logger.log(log_error, "Unable to read data from socket");
+                exit(1);
+            }
+            if (!(Message::parse_message(line, received) && received.code == Answer::FORK)) {
+                logger.log(log_error, "Philosopher forks were not washed or received invalid message!");
+                exit(1);
             }
         }
-
-        int sel = select(socket_client + 1, &descriptor_set, NULL, NULL, NULL);
-        if (sel < 0) {
-            logger.log(log_error, "Unable to select from descriptor set");
+        logger.log(log_plain, "Philosopher is leaving the table");
+        Message bye(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
+        bye.send(socket_client);
+        if (reader.readline(line, 255)  < 0) {
+            logger.log(log_error, "Unable to read data from socket");
+            exit(1);
+        }
+        if (!(Message::parse_message(line, received) && received.code == Answer::BYE)) {
+            logger.log(log_error, "Philosopher did not get goodbye :(");
             exit(1);
         }
 
-        if (FD_ISSET(STDIN_FILENO, &descriptor_set)) {
-            char line[256];
-            int read = stdinReader.readline(line, 255);
-            if (!strcasecmp(line, "quit\n")) {
-                logger.log(log_info, "Quit request entered, ending communication");
-                Message leaving(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
-                leaving.send(socket_client);
-            }
-        }
-
-        if (FD_ISSET(socket_client, &descriptor_set)) {
-            char line[256];
-            int read = reader.readline(line, 256);
-            if (read < 0) {
-                logger.log(log_error, "Unable to read data from server");
-                exit(1);
-            }
-            logger.log(log_debug, "Received: %s", line);
-            Message received;
-            if (Message::parse_message(line, received)) {
-                switch (received.code) {
-                    case Answer::SIT:
-                        philosopher.is_sitting = true;
-                        break;
-                    case Answer::EAT: {
-                        philosopher.is_eating = true;
-                        int _time = rand() % 7 + 2;
-                        logger.log(log_plain, "Philosopher will eat for %d seconds", _time);
-                        philosopher.eat(_time);
-                    }
-                        break;
-                    case Answer::FORK:
-                        philosopher.is_eating = false;
-                        break;
-                    case Answer::BYE:
-                        logger.log(log_debug, "Closing socket connection");
-                        close(socket_client);
-                        logger.log(log_debug, "Exiting program");
-                        exit(0);
-                        break;
-                }
-            }
-
-        }
-
+    } else {
+        logger.log(log_error, "Table has no space or received message is bad!");
+        exit(1);
     }
-
-
-
 
     return 0;
 }
