@@ -33,7 +33,7 @@ struct shm_chairs {
 shm_chairs *shared_chairs = NULL;
 
 void clean( void ) {
-    Logger::print(log_info, "Final cleaning of shared memory");
+    Logger::print(log_debug, "Final cleaning of shared memory");
 
     if (!shared_chairs) return;
 
@@ -42,15 +42,15 @@ void clean( void ) {
     if (shared_chairs != NULL) {
         num_proc = --shared_chairs->num_of_processes;
     }
-    Logger::print(log_info, "Releasing shared memory");
+    Logger::print(log_debug, "Releasing shared memory");
     int ret = munmap(shared_chairs, sizeof(* shared_chairs));
     if (ret)
-        Logger::print(log_error, "Unable to release shared memory!");
+        Logger::print(log_debug, "Unable to release shared memory!");
     else
-        Logger::print(log_info, "Shared memory released.");
+        Logger::print(log_debug, "Shared memory released.");
     if (num_proc == 0) {
-        Logger::print(log_info, "This process is last %d.", getpid());
-        Logger::print(log_info, "Unlinking shared memory.");
+        Logger::print(log_debug, "This process is last %d.", getpid());
+        Logger::print(log_info, "Unbinding shared memory.");
         shm_unlink(SHM_NAME);
     }
 
@@ -62,11 +62,10 @@ void catch_sig(int sig) {
 
 int main(int argc, char ** argv) {
     ProgramArgs args = ProgramArgs::parse(argc, argv, ProgramArgs::server);
+    Logger::s_log_level = args.log_level;
     Logger logger(STDOUT_FILENO, args.log_level);
-    logger.log(log_debug, "Debug info");
-    logger.log(log_error, "Error info");
     int server_socket = socket(AF_INET, SOCK_STREAM, 0);
-    constexpr int freeSpace = 1;
+    constexpr int freeSpace = 2;
     int first = 0;
 
     sem_t * sem_lock = sem_open(SEM_LOCK, O_RDWR | O_CREAT, 0600, 1);
@@ -173,9 +172,9 @@ int main(int argc, char ** argv) {
                 uint lsa = sizeof(sock_address);
                 shared_chairs->num_of_processes++;
                 getsockname(client_fd, (sockaddr *) &sock_address, &lsa);
-                logger.log(log_info, "Server IP: '%s' port: %d", inet_ntoa(sock_address.sin_addr), ntohs(sock_address.sin_port));
+                logger.log(log_debug, "Server IP: '%s' port: %d", inet_ntoa(sock_address.sin_addr), ntohs(sock_address.sin_port));
                 getpeername(client_fd, (sockaddr *) &sock_address, &lsa);
-                logger.log(log_info, "Client IP: '%s' port: %d", inet_ntoa(sock_address.sin_addr), ntohs(sock_address.sin_port));
+                logger.log(log_debug, "Client IP: '%s' port: %d", inet_ntoa(sock_address.sin_addr), ntohs(sock_address.sin_port));
                 close(server_socket);
                 break; //break the loop and go to communication section
             } else {
@@ -211,21 +210,8 @@ int main(int argc, char ** argv) {
         Message received;
         char payload[256];
         char line[256];
-//        struct timeval timeout { rand() % 4 + 5, 0 };
-//        FD_ZERO(&read_set);
-//        FD_SET( client_fd, &read_set );
-//        logger.log(log_debug, "Waiting for client!\n");
-//        int sel = select(client_fd + 1, &read_set, NULL, NULL, &timeout);
-//        if (sel == 0) {
-//            logger.log(log_debug, "Client communication timeout");
-//            char mes[253];
-//            int mes_num;
-//            Info::random(rand() % Info::count + 1, mes_num, mes);
-//            Message info(Info::TYPE, mes_num, mes);
-//            info.to_string(payload);
-//            logger.log(log_debug, "Sending: %s", payload);
-//            info.send(client_fd);
-//        }
+        Message info;
+        info.type = Info::TYPE;
         //expect a message
         if (reader.readline(line, 255)  < 0) { //bad input
             logger.log(log_error, "Unable to read data from socket");
@@ -237,7 +223,7 @@ int main(int argc, char ** argv) {
             if (shared_chairs->chair >= freeSpace) {
                 Message bye(Answer::TYPE, Answer::NO_SPACE, Answer::S_NO_SPACE);
                 bye.to_string(payload);
-                logger.log(log_plain, "Sending %s", payload);
+//                logger.log(log_info, "Sending %s", payload);
                 bye.send(client_fd);
                 exit(1);
             } else {
@@ -250,6 +236,12 @@ int main(int argc, char ** argv) {
                 testvalue(welcome.send(client_fd), -1, logger, "Unable to write");
             }
             do {
+                if (rand() % 101 > 80) {
+                    Info::random(rand() % Info::count + 1, info.code, info.text);
+                    logger.log(log_plain, "Sending info message I%d:%s", info.code, info.text);
+                    info.send(client_fd);
+                    memset(info.text, '\0', sizeof(char) * 251);
+                }
                 logger.log(log_debug, "Waiting for client!");
                 //expect a message
                 if (reader.readline(line, 255)  < 0) { //bad input
@@ -265,7 +257,6 @@ int main(int argc, char ** argv) {
                     Message eat(Answer::TYPE, Answer::EAT, payload);
                     logger.log(log_debug, "Sending: %s", payload);
                     eat.send(client_fd);
-
                 } //is leaving
                 else if (Message::parse_message(line, received) && received.code == Command::LEAVING) {
                     logger.log(log_debug, "Client leaving");
@@ -276,13 +267,21 @@ int main(int argc, char ** argv) {
                     Message bye(Answer::TYPE, Answer::BYE, payload);
                     logger.log(log_plain, "Sending %s", payload);
                     testvalue(bye.send(client_fd), -1, logger, "Unable to write");
+                    close(client_fd);
+                    exit(0);
                 } else { //else is invalid
                     Message invalid = Message(Error::TYPE, Error::CLIENT_ERROR, Error::S_CLIENT_ERROR);
                     invalid.send(client_fd);
                     exit(1);
                 }
+                //send info message
+                if (rand() % 101 > 80) {
+                    Info::random(rand() % Info::count + 1, info.code, info.text);
+                    logger.log(log_plain, "Sending info message I%d:%s", info.code, info.text);
+                    info.send(client_fd);
+                    memset(info.text, '\0', sizeof(char) * 251);
+                }
                 //expect a message
-
                 if (reader.readline(line, 255)  < 0) { //bad input
                     logger.log(log_error, "Unable to read data from socket");
                     exit(1);
@@ -304,6 +303,7 @@ int main(int argc, char ** argv) {
             logger.log(log_debug, "Client error");
             Message invalid = Message(Error::TYPE, Error::CLIENT_ERROR, Error::S_CLIENT_ERROR);
             invalid.send(client_fd);
+            close(client_fd);
             exit(1);
         }
     }

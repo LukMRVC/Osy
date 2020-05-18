@@ -12,9 +12,12 @@
 #include <time.h>
 #include "lib/Philosopher.h"
 
+int await_message(int code, char * line, BufferedFileDescriptorReader & reader, Message & mes, Logger & logger,
+        const char * err_msg = "" );
+
 int main(int argc, char ** argv) {
     ProgramArgs args = ProgramArgs::parse(argc, argv, ProgramArgs::client);
-    printf("Hello, client_address world! Port: %d\n", args.port);
+//    printf("Hello, client_address world! Port: %d\n", args.port);
     Logger logger(STDOUT_FILENO, args.log_level);
     logger.log(log_debug, "Connecting to '%s':%d", args.host, args.port);
     srand(time(nullptr));
@@ -80,15 +83,9 @@ int main(int argc, char ** argv) {
             logger.log(log_plain, "Philosopher is hungry");
             Message hungry(Command::TYPE, Command::HUNGRY, Command::S_HUNGRY);
             hungry.send(socket_client);
-            logger.log(log_debug, "Waiting for server answer");
-            if (reader.readline(line, 255)  < 0) {
-                logger.log(log_error, "Unable to read data from socket");
-                exit(1);
-            }
-            if (!(Message::parse_message(line, received) && received.code == Answer::EAT)) {
-                logger.log(log_error, "Philosopher cannot eat or received invalid message");
-                exit(1);
-            }
+//            logger.log(log_debug, "Waiting for server answer");
+            //await allow to eat
+            await_message(Answer::EAT, line, reader, received, logger, "Not allowed to eat :(");
             //eat
             rand_time = rand() % 7 + 1;
             logger.log(log_plain, "Philosopher will eat for %d seconds", rand_time);
@@ -96,31 +93,38 @@ int main(int argc, char ** argv) {
             //philosopher is full
             Message full(Command::TYPE, Command::FULL, Command::S_FULL);
             full.send(socket_client);
-            if (reader.readline(line, 255)  < 0) {
-                logger.log(log_error, "Unable to read data from socket");
-                exit(1);
-            }
-            if (!(Message::parse_message(line, received) && received.code == Answer::FORK)) {
-                logger.log(log_error, "Philosopher forks were not washed or received invalid message!");
-                exit(1);
-            }
+            //await return of a fork
+            await_message(Answer::FORK, line, reader, received, logger, "Forks had not been washed");
         }
-        logger.log(log_plain, "Philosopher is leaving the table");
+        logger.log(log_plain, "Philosopher is LEAVING the table!\n\n");
         Message bye(Command::TYPE, Command::LEAVING, Command::S_LEAVING);
         bye.send(socket_client);
-        if (reader.readline(line, 255)  < 0) {
-            logger.log(log_error, "Unable to read data from socket");
-            exit(1);
-        }
-        if (!(Message::parse_message(line, received) && received.code == Answer::BYE)) {
-            logger.log(log_error, "Philosopher did not get goodbye :(");
-            exit(1);
-        }
-
+        //await for a good bye
+        await_message(Answer::BYE, line, reader, received, logger, "Philosopher did not get good bye :(");
+        close(socket_client);
     } else {
         logger.log(log_error, "Table has no space or received message is bad!");
         exit(1);
     }
 
+    return 0;
+}
+
+int await_message(int code, char * line, BufferedFileDescriptorReader & reader, Message & mes, Logger & logger,
+                  const char * err_msg ) {
+    do {
+        if (mes.type == Info::TYPE) {
+            logger.log(log_plain, "Info message: %s", mes.text);
+        }
+        if (reader.readline(line, 255) <= 0) {
+            logger.log(log_error, "Unable to read data from socket");
+            exit(1);
+        }
+        if (!(Message::parse_message(line, mes) && (mes.code == code || mes.type == Info::TYPE))) {
+            logger.log(log_error, err_msg);
+            logger.log(log_error, "Received: %s", line);
+            exit(1);
+        }
+    } while (mes.type == Info::TYPE); //if it info message, try again
     return 0;
 }

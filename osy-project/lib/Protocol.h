@@ -4,7 +4,7 @@
 
 #ifndef OSY_PROJECT_PROTOCOL_H
 #define OSY_PROJECT_PROTOCOL_H
-
+#include <ctime>
 struct Command {
     static constexpr const char TYPE = 'C';
     static constexpr int INCOMING = 11;
@@ -35,7 +35,7 @@ struct Answer {
     static constexpr const char * S_BYE = "Good bye.";
 
     static constexpr int NO_SPACE = 24;
-    static constexpr const char * S_NO_SPACE = "Sit on char %d.";
+    static constexpr const char * S_NO_SPACE = "The table is FULL";
 };
 
 struct Error {
@@ -66,10 +66,11 @@ struct Info {
     static constexpr const char * S_ENJOY = "How are you enjoying yourself here today?";
 
     static constexpr int DATE = 54;
-    static constexpr const char * S_DATE = "Todays date is: %s.";
+    static constexpr const char * S_DATE = "Todays date is: %.24s";
 
     static void random(int num, int & mes_num, char * message)
     {
+        char mes[200];
         switch (num) {
             case 1: mes_num = 51;
                 strcpy(message, S_TIME);
@@ -80,8 +81,12 @@ struct Info {
             case 3: mes_num = 53;
                 strcpy(message, S_ENJOY);
                 break;
-            case 4: mes_num = 54;
-                strcpy(message, S_DATE);
+            case 4: mes_num = 54; {
+                time_t now = time(0);
+                char *dt = ctime(&now);
+                sprintf(mes, S_DATE, dt);
+                strcpy(message, mes);
+            }
                 break;
             default:
                 mes_num = Error::SERVER_ERROR;

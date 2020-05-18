@@ -17,6 +17,7 @@ constexpr unsigned int log_debug = 3;
 struct Logger {
     int descriptor;
     int log_level;
+    static int s_log_level;
     Logger(int file_no, int log_level) {
         descriptor = file_no;
         this->log_level = log_level;
@@ -52,7 +53,7 @@ struct Logger {
     }
 
     static void print(unsigned int level, const char * message, ...) {
-        if (level && level > log_plain) return;
+        if (level && level > Logger::s_log_level) return;
         char buf[ 1024 ];
         va_list arg;
         va_start( arg, message );
@@ -74,5 +75,7 @@ struct Logger {
     }
 
 };
+
+int Logger::s_log_level = log_error;
 
 #endif //OSY_PROJECT_LOGGER_H
